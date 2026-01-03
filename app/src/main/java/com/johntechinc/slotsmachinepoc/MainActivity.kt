@@ -2,187 +2,183 @@ package com.johntechinc.slotsmachinepoc
 
 import android.media.MediaPlayer
 import android.os.Bundle
-import android.support.v7.app.AppCompatActivity
-import android.widget.Button
-import com.aigestudio.wheelpicker.WheelPicker
-import java.util.*
+import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
+import com.johntechinc.slotsmachinepoc.databinding.ActivityMainBinding
+import kotlinx.coroutines.*
+import java.util.Arrays
 
 class MainActivity : AppCompatActivity() {
 
-    var picker1: WheelPicker? = null
-    var picker2: WheelPicker? = null
-    var picker3: WheelPicker? = null
+    private lateinit var binding: ActivityMainBinding
+    private var isStart = false
 
-    var isStart = false
+    private val interval = 100L
+    private val onceIncrease = 6L
+    private val maxIncrease = 850L
 
-    val interval = 100L
-    val onceIncrease = 6L
-    val maxIncrease = 850L
-    var picker1Index = 0
-    var picker2Index = 0
-    var picker3Index = 0
-    var slot1 = SlotInfo(5L)
-    var slot2 = SlotInfo(5L)
-    var slot3 = SlotInfo(5L)
-    var slotArray = arrayListOf(slot1, slot2, slot3)
-    var slotArrayIndicator = 0
-    var stopCount = 0
+    private var picker1Index = 0
+    private var picker2Index = 0
+    private var picker3Index = 0
+
+    private val slot1 = SlotInfo()
+    private val slot2 = SlotInfo()
+    private val slot3 = SlotInfo()
+    private val slots = listOf(slot1, slot2, slot3)
+
+    private var slotStopIndex = 0
+    private var stopCount = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
-        initPicker()
+        binding = ActivityMainBinding.inflate(layoutInflater)
+        setContentView(binding.root)
+        initPickers()
     }
 
-    private fun initPicker() {
-        picker1 = findViewById<WheelPicker>(R.id.wp_1)
-        picker2 = findViewById<WheelPicker>(R.id.wp_2)
-        picker3 = findViewById<WheelPicker>(R.id.wp_3)
-        findViewById<Button>(R.id.btn_start)
-                .setOnClickListener { startSlots() }
-        findViewById<Button>(R.id.btn_stop)
-                .setOnClickListener { stopSlots() }
+    private fun initPickers() {
+        binding.btnStart.setOnClickListener { startSlots() }
+        binding.btnStop.setOnClickListener { stopSlots() }
 
-        setCurtain(picker1, picker2, picker3)
-        setData(picker1, picker2, picker3)
-
+        setupPicker(binding.wp1, binding.wp2, binding.wp3)
+        setPickerData(binding.wp1, binding.wp2, binding.wp3)
     }
 
-
-    fun setCurtain(vararg p: WheelPicker?) {
-        p.forEach { x ->
-            x?.isCurved = true
-            x?.isCyclic = true
-            x?.setAtmospheric(true)
+    private fun setupPicker(vararg pickers: com.aigestudio.wheelpicker.WheelPicker) {
+        pickers.forEach { picker ->
+            picker.isCurved = true
+            picker.isCyclic = true
+            picker.setAtmospheric(true)
         }
     }
 
-    fun setData(vararg p: WheelPicker?) {
-        p.forEach { x ->
-            x!!.data = Arrays.asList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9)
-
+    private fun setPickerData(vararg pickers: com.aigestudio.wheelpicker.WheelPicker) {
+        val data = (0..9).toList()
+        pickers.forEach { picker ->
+            picker.data = data
         }
     }
 
-    fun startSlots() {
-        val mediaPlayer: MediaPlayer = MediaPlayer()
-        val desc = assets.openFd("coin_drop_1.mp3")
-        mediaPlayer.reset()
-        mediaPlayer.setDataSource(desc.fileDescriptor, desc.startOffset, desc.length)
-        mediaPlayer.prepare()
-        mediaPlayer.start()
+    private fun startSlots() {
+        if (isStart) return
+        isStart = true
+        stopCount = 0
+        slotStopIndex = 0
 
+        playSound("coin_drop_1.mp3")
 
-        picker1Index %= 5
+        lifecycleScope.launch {
+            val effectPlayer = createMediaPlayer("slots_effect.mp3")?.apply {
+                isLooping = true
+                start()
+            }
 
-        Thread {
-            val mediaPlayerEffect = MediaPlayer()
-            val desc = assets.openFd("slots_effect.mp3")
-            mediaPlayerEffect.reset()
-            mediaPlayerEffect.setDataSource(desc.fileDescriptor, desc.startOffset, desc.length)
-            mediaPlayerEffect.prepare()
+            // Start each wheel animation in its own coroutine
+            launch { animateSlot(1) }
+            launch { animateSlot(2) }
+            launch { animateSlot(3) }
 
-            isStart = true
+            // Wait until all slots stopped
+            while (isStart) {
+                delay(100)
+            }
 
+            effectPlayer?.apply {
+                if (isPlaying) stop()
+                release()
+            }
+        }
+    }
 
-            Thread {
-                while (isStart) {
-                    Thread.sleep(slot1.interval)
-//                    if (isStart) mediaPlayerEffect.start()
-                    picker1Index %= picker1!!.data.size
-                    if (slot1.interval < maxIncrease) {
-                        runOnUiThread {
-                            picker1?.selectedItemPosition = ++picker1Index
-                        }
-                    }
-                    if (slot1.interval > maxIncrease) {
-                        break
-                    }
-                }
-                slot1.resetInterval()
-            }.start()
+    private suspend fun animateSlot(slotNumber: Int) {
+        val picker = when (slotNumber) {
+            1 -> binding.wp1
+            2 -> binding.wp2
+            else -> binding.wp3
+        }
+        val slotInfo = when (slotNumber) {
+            1 -> slot1
+            2 -> slot2
+            else -> slot3
+        }
+        var index = when (slotNumber) {
+            1 -> picker1Index
+            2 -> picker2Index
+            else -> picker3Index
+        }
 
-
-
-            Thread {
-                while (isStart) {
-                    Thread.sleep(slot2.interval)
-//                    if (isStart) mediaPlayerEffect.start()
-                    picker2Index %= picker2!!.data.size
-                    if (slot2.interval < maxIncrease) {
-                        runOnUiThread {
-                            picker2?.selectedItemPosition = ++picker2Index
-                        }
-                    }
-                    if (slot2.interval > maxIncrease) {
-                        break
-                    }
-                }
-                slot2.resetInterval()
-            }.start()
-
-            Thread {
-                while (isStart) {
-                    Thread.sleep(slot3.interval)
-//                    if (isStart) mediaPlayerEffect.start()
-                    picker3Index %= picker3!!.data.size
-                    if (slot3.interval < maxIncrease) {
-                        runOnUiThread {
-                            picker3?.selectedItemPosition = ++picker3Index
-                        }
-                    }
-                    if (slot3.interval > maxIncrease) {
-                        break
-                    }
-                }
-                slot3.resetInterval()
-            }.start()
-
-            mediaPlayerEffect.stop()
-            mediaPlayerEffect.release()
-        }.start()
-
+        while (isStart && slotInfo.interval <= maxIncrease) {
+            delay(slotInfo.interval)
+            index = (index + 1) % picker.data.size
+            picker.selectedItemPosition = index
+            
+            // Sync index back
+            when (slotNumber) {
+                1 -> picker1Index = index
+                2 -> picker2Index = index
+                else -> picker3Index = index
+            }
+        }
+        slotInfo.resetInterval()
     }
 
     private fun stopSlots() {
-        stopCount = 0
-        slotArrayIndicator = 0
-        stopSingleSlot(slotArray[0])
-//        stopSingleSlot(slotArray[1])
-//        stopSingleSlot(slotArray[2])
+        if (!isStart) return
+        stopSingleSlot(slots[0])
     }
 
-    private fun stopSingleSlot(currentSlot: SlotInfo, delay: Long = 0) {
-        Thread {
-            var isLaunchNextSlotStop = false
-            if (delay > 0) Thread.sleep(delay)
-            while (currentSlot.interval <= maxIncrease) {
-                Thread.sleep(interval)
-                if (currentSlot.interval <= maxIncrease * 0.5) {
-                    currentSlot.interval += onceIncrease * 4
-                } else if (currentSlot.interval <= maxIncrease * 0.75) {
-                    currentSlot.interval += onceIncrease * 16
-
-                } else {
-                    currentSlot.interval += onceIncrease * 64
-                    if (!isLaunchNextSlotStop) {
-                        isLaunchNextSlotStop = true
-                        if (++slotArrayIndicator < slotArray.size) {
-                            stopSingleSlot(slotArray[slotArrayIndicator])
+    private fun stopSingleSlot(slot: SlotInfo) {
+        lifecycleScope.launch {
+            while (slot.interval <= maxIncrease) {
+                delay(interval)
+                when {
+                    slot.interval <= maxIncrease * 0.5 -> slot.interval += onceIncrease * 4
+                    slot.interval <= maxIncrease * 0.75 -> slot.interval += onceIncrease * 16
+                    else -> {
+                        slot.interval += onceIncrease * 64
+                        if (slot.interval > maxIncrease) {
+                            // Trigger next slot stop
+                            if (++slotStopIndex < slots.size) {
+                                stopSingleSlot(slots[slotStopIndex])
+                            }
                         }
                     }
                 }
             }
             stopCount++
-
-            if (stopCount >= 3) {
+            if (stopCount >= slots.size) {
                 isStart = false
             }
-        }.start()
+        }
+    }
+
+    private fun playSound(fileName: String) {
+        try {
+            val afd = assets.openFd(fileName)
+            MediaPlayer().apply {
+                setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                prepare()
+                start()
+                setOnCompletionListener { 
+                    it.release() 
+                    afd.close()
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun createMediaPlayer(fileName: String): MediaPlayer? {
+        return try {
+            val afd = assets.openFd(fileName)
+            MediaPlayer().apply {
+                setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                prepare()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
     }
 }
-
-
-
-
-
